@@ -1,0 +1,63 @@
+# Builds the native Arch Linux package (digup-bin .pkg.tar.zst) from the release's
+# .deb and attaches it to the release. No compilation: repackages upstream assets,
+# so any x86_64 Arch machine (or AUR user) installs with pacman, no dpkg involved.
+name: Arch package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to package (e.g. v0.7.0-beta.1)
+        required: true
+        default: v0.7.0-beta.1
+
+permissions:
+  contents: write
+
+jobs:
+  pkg:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Build tools and builder user
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git github-cli
+          id builder 2>/dev/null || useradd -m builder
+      - uses: actions/checkout@v4
+      - name: Render PKGBUILD for the tag
+        run: |
+          [[ "$TAG" =~ ^v[0-9] ]] || { echo "Not a release tag: $TAG"; exit 1; }
+          VER="${TAG#v}"
+          PKGVER="$(echo "$VER" | tr -d '-')"
+          DEB="DigUp_${VER}_amd64.deb"
+          URL="https://github.com/ARahim3/DigUp/releases/download/${TAG}/${DEB}"
+          mkdir -p build && chown -R builder build
+          # The .deb appears once the Packages job finishes; wait for it.
+          for i in $(seq 1 90); do
+            curl -fsSL --retry 3 -o "build/$DEB" "$URL" && break
+            echo "waiting for $DEB ($i/90)"; sleep 60
+          done
+          test -f "build/$DEB"
+          SHA="$(sha256sum "build/$DEB" | cut -d' ' -f1)"
+          cp packaging/arch/PKGBUILD build/PKGBUILD
+          sed -i -e "s/^pkgver=.*/pkgver=$PKGVER/" -e "s/^sha256sums=.*/sha256sums=('$SHA')/" build/PKGBUILD
+          chown builder build/PKGBUILD
+          grep -E "^(pkgver|sha256sums)=" build/PKGBUILD
+      - name: Build the package
+        run: |
+          cd build && runuser -u builder -- makepkg --noconfirm
+          ls -la ./*.pkg.tar.zst
+      - name: Upload to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" build/*.pkg.tar.zst --clobber
+      - name: Build artifacts (dispatch runs and review)
+        uses: actions/upload-artifact@v4
+        with:
+          name: digup-arch-x86_64
+          path: build/*.pkg.tar.zst

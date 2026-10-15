@@ -1,0 +1,25 @@
+# Maintainer: your-name <you@example.com>
+# Upstream binary release, repackaged for Arch (no compilation).
+# Bumped per release by .github/workflows/arch-package.yml (pkgver + sha256sums).
+pkgname=digup-bin
+pkgver=0.7.0beta.1
+pkgrel=1
+pkgdesc="Search the files on your computer by what's in them (upstream binary)"
+arch=('x86_64')
+url="https://github.com/ARahim3/DigUp"
+license=('MIT')
+depends=('curl' 'gcc-libs' 'libayatana-appindicator' 'webkit2gtk-4.1' 'gtk3')
+optdepends=('vulkan-icd-loader: GPU embedding via Vulkan')
+provides=('digup')
+conflicts=('digup')
+options=(!strip !debug)
+# Arch pkgver drops the hyphen the upstream tag/.deb keep: 0.7.0-beta.1 -> 0.7.0beta.1
+_debver=${pkgver/beta/-beta}
+source=("DigUp_${_debver}_amd64.deb::https://github.com/ARahim3/DigUp/releases/download/v${_debver}/DigUp_${_debver}_amd64.deb")
+sha256sums=('7548129eb175f10c923f5be544127999be00efa0704b2a484ddc01a14c023f4d')
+
+package() {
+  # makepkg unpacks the .deb members already; unpack the data payload into $pkgdir
+  tar -xf data.tar.xz -C "$pkgdir"
+  install -Dm644 "$pkgdir/usr/share/doc/dig-up/copyright" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
